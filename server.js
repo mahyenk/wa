@@ -4,12 +4,22 @@ const fs = require("fs");
 
 const app = express();
 
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({
+    limit: "5mb"
+}));
+
+// ========================================
+// LOAD PRIVATE KEY
+// ========================================
 
 const privateKey = fs.readFileSync(
     "./private.pem",
     "utf8"
 );
+
+// ========================================
+// MAIN FLOW ENDPOINT
+// ========================================
 
 app.post("/", async (req, res) => {
 
@@ -21,6 +31,11 @@ app.post("/", async (req, res) => {
             initial_vector
         } = req.body;
 
+        // ========================================
+        // STEP 1
+        // RSA DECRYPT AES KEY
+        // ========================================
+
         const aesKey = crypto.privateDecrypt(
             {
                 key: privateKey,
@@ -30,27 +45,49 @@ app.post("/", async (req, res) => {
 
                 oaepHash: "sha256"
             },
+
             Buffer.from(
                 encrypted_aes_key,
                 "base64"
             )
         );
 
+        // ========================================
+        // STEP 2
+        // DECODE REQUEST IV
+        // ========================================
+
         const iv = Buffer.from(
             initial_vector,
             "base64"
         );
+
+        // ========================================
+        // STEP 3
+        // DECODE ENCRYPTED FLOW DATA
+        // ========================================
 
         const flowData = Buffer.from(
             encrypted_flow_data,
             "base64"
         );
 
+        // ========================================
+        // STEP 4
+        // SPLIT AUTH TAG
+        // LAST 16 BYTES
+        // ========================================
+
         const authTag =
             flowData.slice(-16);
 
         const cipherText =
             flowData.slice(0, -16);
+
+        // ========================================
+        // STEP 5
+        // AES-GCM DECRYPT
+        // ========================================
 
         const decipher =
             crypto.createDecipheriv(
@@ -71,21 +108,59 @@ app.post("/", async (req, res) => {
         decrypted +=
             decipher.final("utf8");
 
-        console.log("Decrypted Flow Data:");
+        console.log(
+            "=================================="
+        );
+
+        console.log(
+            "DECRYPTED FLOW REQUEST:"
+        );
+
         console.log(decrypted);
 
-       const responseObj = {
-    version: "3.0",
-    data: {
-        status: "active"
-    }
-};
+        console.log(
+            "=================================="
+        );
+
+        // ========================================
+        // STEP 6
+        // PREPARE RESPONSE OBJECT
+        // ========================================
+
+        const responseObj = {
+            version: "3.0",
+            screen: "SUCCESS",
+            data: {
+                status: "active"
+            }
+        };
 
         const responseJson =
             JSON.stringify(responseObj);
 
+        // ========================================
+        // STEP 7
+        // IMPORTANT:
+        // WHATSAPP FLOWS RESPONSE IV
+        // MUST BE BITWISE-NOT OF REQUEST IV
+        // ========================================
+
         const responseIV =
-            crypto.randomBytes(12);
+            Buffer.from(iv);
+
+        for (
+            let i = 0;
+            i < responseIV.length;
+            i++
+        ) {
+            responseIV[i] =
+                ~responseIV[i];
+        }
+
+        // ========================================
+        // STEP 8
+        // AES-GCM ENCRYPT RESPONSE
+        // ========================================
 
         const cipher =
             crypto.createCipheriv(
@@ -108,13 +183,23 @@ app.post("/", async (req, res) => {
         const responseTag =
             cipher.getAuthTag();
 
+        // ========================================
+        // STEP 9
+        // APPEND AUTH TAG
+        // ========================================
+
         const finalPayload =
             Buffer.concat([
                 encrypted,
                 responseTag
             ]);
 
-        res.json({
+        // ========================================
+        // STEP 10
+        // RETURN FINAL RESPONSE
+        // ========================================
+
+        const finalResponse = {
 
             encrypted_response:
                 finalPayload.toString(
@@ -125,23 +210,66 @@ app.post("/", async (req, res) => {
                 responseIV.toString(
                     "base64"
                 )
-        });
+        };
+
+        console.log(
+            "FINAL RESPONSE:"
+        );
+
+        console.log(finalResponse);
+
+        return res.status(200).json(
+            finalResponse
+        );
 
     } catch (err) {
 
+        console.error(
+            "FLOW ERROR:"
+        );
+
         console.error(err);
 
-        res.status(500).json({
+        return res.status(500).json({
             error: err.message
         });
     }
 });
 
+// ========================================
+// HEALTH CHECK
+// ========================================
+
+app.get("/", (req, res) => {
+
+    res.send(
+        "WhatsApp Flow Endpoint Running"
+    );
+});
+
+// ========================================
+// START SERVER
+// ========================================
+
 const PORT =
     process.env.PORT || 3000;
 
 app.listen(PORT, () => {
+
     console.log(
-        "Server running on " + PORT
+        "=================================="
+    );
+
+    console.log(
+        "WhatsApp Flow Server Running"
+    );
+
+    console.log(
+        "Port:",
+        PORT
+    );
+
+    console.log(
+        "=================================="
     );
 });
