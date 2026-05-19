@@ -74,11 +74,12 @@ app.post("/", async (req, res) => {
         console.log("Decrypted Flow Data:");
         console.log(decrypted);
 
-        const responseObj = {
-            version: "3.0",
-            screen: "SUCCESS",
-            data: {}
-        };
+       const responseObj = {
+    version: "3.0",
+    data: {
+        status: "active"
+    }
+};
 
         const responseJson =
             JSON.stringify(responseObj);
